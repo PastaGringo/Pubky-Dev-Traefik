@@ -1,0 +1,17 @@
+[server]
+bind = "0.0.0.0:8080"
+public_ip = "your.server.ip.address"
+
+[auth]
+admin_password = "admin"
+
+[storage]
+data_dir = "/data"
+
+[network]
+max_connections = 1000
+timeout = 30
+
+[logging]
+level = "info"
+file = "/data/homeserver.log"

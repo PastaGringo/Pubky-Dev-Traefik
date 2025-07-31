@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik
+    restart: unless-stopped
+    command:
+      - --api.dashboard=true
+      - --api.insecure=false
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.letsencrypt.acme.tlschallenge=true
+      - --certificatesresolvers.letsencrypt.acme.email=${SSL_EMAIL}
+      - --certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.web.http.redirections.entrypoint.permanent=true
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/acme.json:/letsencrypt/acme.json
+    networks:
+      - pubky-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.${DOMAIN}`)"
+      - "traefik.http.routers.traefik.entrypoints=websecure"
+      - "traefik.http.routers.traefik.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.traefik.service=api@internal"
+      - "traefik.http.middlewares.auth.basicauth.users=admin:$$2y$$10$$K8V2VzWzVzWzVzWzVzWzVe"
+      - "traefik.http.routers.traefik.middlewares=auth"
+
+  pubky-app:
+    build:
+      context: ./pubky-app
+      dockerfile: Dockerfile
+    container_name: pubky-app
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - HOMESERVER_URL=https://${SUBDOMAIN_HOMESERVER}.${DOMAIN}
+    networks:
+      - pubky-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pubky-app.rule=Host(`${SUBDOMAIN_APP}.${DOMAIN}`)"
+      - "traefik.http.routers.pubky-app.entrypoints=websecure"
+      - "traefik.http.routers.pubky-app.tls.certresolver=letsencrypt"
+      - "traefik.http.services.pubky-app.loadbalancer.server.port=3000"
+
+  pubky-homeserver:
+    build:
+      context: ./pubky-homeserver
+      dockerfile: Dockerfile
+    container_name: pubky-homeserver
+    restart: unless-stopped
+    environment:
+      - RUST_LOG=info
+      - HOMESERVER_CONFIG=/app/config/homeserver.config.toml
+    volumes:
+      - ./pubky-homeserver/config:/app/config:ro
+      - pubky-homeserver-data:/data
+    networks:
+      - pubky-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.pubky-homeserver.rule=Host(`${SUBDOMAIN_HOMESERVER}.${DOMAIN}`)"
+      - "traefik.http.routers.pubky-homeserver.entrypoints=websecure"
+      - "traefik.http.routers.pubky-homeserver.tls.certresolver=letsencrypt"
+      - "traefik.http.services.pubky-homeserver.loadbalancer.server.port=8080"
+
+volumes:
+  pubky-homeserver-data:
+    driver: local
+
+networks:
+  pubky-network:
+    name: ${DOCKER_NETWORK}
+    driver: bridge
